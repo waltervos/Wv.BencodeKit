@@ -23,6 +23,10 @@ class BencodedFile {
         $this.Reader = [System.IO.BinaryReader]::new($this.Stream, $this.Encoding)
     }
 
+    [Void] Dispose() {
+        $this.Reader.Dispose()
+    }
+
     [Void] WritePosition($From) {
         Write-Host "Offset/Position in $From is $($this.Stream.Position)"
     }
