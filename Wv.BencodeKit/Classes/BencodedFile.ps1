@@ -174,9 +174,9 @@ class BencodedFile {
         return $List
     }
 
-    [System.Int32] DecodeInteger() {
+    [System.Double] DecodeInteger() {
         $this.WritePosition('DecodeInteger')
-        $Integer = [System.Int32]::new()
+        $Integer = [System.Double]::new()
         
         # Offset, position, figure it out!
         $OffsetOfE = $this.GetOffsetOfString('e')
@@ -278,8 +278,8 @@ class BencodedFile {
                     break
                 }
                 'integer' {
-                    [int] $Digit = [char]::GetNumericValue($Char)
-                    [int32] $Value = "{0:d1}{1:d1}" -f $Value, $Digit
+                    [double] $Integer = [char]::GetNumericValue($Char)
+                    [double] $Value = "{0:G}{1:G}" -f $Value, $Integer
                     break
                 }
                 default {
