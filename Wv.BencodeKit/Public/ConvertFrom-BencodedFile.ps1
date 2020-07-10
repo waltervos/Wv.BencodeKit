@@ -16,7 +16,7 @@ function ConvertFrom-BencodedFile {
         Write-Verbose "Starting conversion of $FilePath to PowerShell object."
         try {
             $BencodedFile = [BencodedFile]::new($FilePath, $Encoding)
-            Write-Output $BencodedFile.DoDecode()
+            $BencodedFile.BencodedData
         }
         finally {
             $BencodedFile.Dispose()

@@ -2,6 +2,7 @@ class BencodedFile {
     [System.IO.FileStream] $Stream
     [System.IO.BinaryReader] $Reader
     [System.IO.FileInfo] $File
+    [System.Object] $BencodedData
     [System.Text.Encoding] $Encoding = [System.Text.Encoding]::UTF8
 
     BencodedFile([String] $FilePath) {
@@ -21,19 +22,15 @@ class BencodedFile {
         $this.File = Get-Item -Path $FilePath
         $this.Stream = [System.IO.FileStream]::new([string]$FilePath, 'Open')
         $this.Reader = [System.IO.BinaryReader]::new($this.Stream, $this.Encoding)
+        $this.BencodedData = $this.DoDecode()
     }
 
     [Void] Dispose() {
         $this.Reader.Dispose()
     }
 
-    [Void] WritePosition($From) {
-        Write-Host "Offset/Position in $From is $($this.Stream.Position)"
-    }
-
     [System.Object] DoDecode() {
-        $this.WritePosition('DoDecode')
-        switch ($this.GetCharAsString()) {
+        switch ($this.GetByteAsString()) {
             'd' {
                 $this.AdvancePosition()
                 return $this.DecodeDictionary()
@@ -47,8 +44,8 @@ class BencodedFile {
                 return $this.DecodeInteger()
             }
             default {
-                if ([char]::IsDigit($this.GetChar())) {
-                    return $this.DecodeString()
+                if ([char]::IsDigit($this.GetByte())) {
+                    return $this.DecodeByteString()
                 }
             }
         }
@@ -56,8 +53,7 @@ class BencodedFile {
         return $False # PS was complaining
     }
 
-    [void] AdvancePosition([Int]$Offset) {
-        $this.WritePosition('AdvancePosition')
+    [void] AdvancePosition([int64]$Offset) {
         $this.Stream.Position =  $this.Stream.Position + $Offset
     }
 
@@ -65,73 +61,63 @@ class BencodedFile {
         $this.AdvancePosition(1)
     }
 
-    [char] GetChar($Offset, $Position) {
-        $this.WritePosition('GetChar')
-        $InitialPosition = $this.Stream.Position
-        $This.Stream.Position = $Offset + $Position
-        $Char = [char] $this.Reader.PeekChar()
-        $This.Stream.Position = $InitialPosition
-        return $Char
-    }
-
-    [char] GetChar($Offset) {
-        return $this.GetChar($Offset, $this.Stream.Position)
-    }
-
-    [char] GetChar() {
-        return $this.GetChar(0, $this.Stream.Position)
-    }
-
-    [string] GetCharAsString([int] $Offset) {
-        return ($this.GetChar($Offset)).ToString()
-    }
-
-    [string] GetCharAsString() {
-        return $this.GetCharAsString(0)
-    }
-
-    [int32] GetCharAsInt([int] $Offset) {
-        return [char]::GetNumericValue($this.GetChar($Offset))
-    }
-
-    [int32] GetCharAsInt() {
-        return $this.GetCharAsInt(0)
-    }
-
-    [char[]] GetChars([int] $Count, [int] $Offset, [int] $Position) {
-        $this.WritePosition("GetChars with count $Count, from position $Position with offset $Offset")
+    [byte[]] GetBytes([int64] $Count, [int64] $Offset, [int64] $Position) {
         $InitialPosition = $this.Stream.Position
         $This.Stream.Position = $Position + $Offset
-        [char[]] $Chars = $this.Reader.ReadChars($Count)
+        [byte[]] $Bytes = $this.Reader.ReadBytes($Count)
         $This.Stream.Position = $InitialPosition
-        return $Chars
+        return $Bytes
     }
 
-    [char[]] GetChars([int] $Count, [int] $Offset) {
-        return $this.GetChars($Count, $Offset, $this.Stream.Position)
+    [byte] GetByte($Offset, $Position) {
+        $InitialPosition = $this.Stream.Position
+        $This.Stream.Position = $Offset + $Position
+        $Byte = [byte] $this.Reader.ReadByte()
+        $This.Stream.Position = $InitialPosition
+        return $Byte
     }
 
-    [char[]] GetChars([int] $Count) {
-        return $this.GetChars($Count, 0, $this.Stream.Position)
+    [byte[]] GetBytes([int64] $Count, [int64] $Offset) {
+        return $this.GetBytes($Count, $Offset, $this.Stream.Position)
     }
 
-    [char[]] GetChars() {
-        return $this.GetChar()
+    [byte] GetByte($Offset) {
+        return $this.GetByte($Offset, $this.Stream.Position)
+    }
+
+    [byte[]] GetBytes([int64] $Count) {
+        return $this.GetBytes($Count, 0, $this.Stream.Position)
+    }
+
+    [byte] GetByte() {
+        return $this.GetByte(0, $this.Stream.Position)
+    }
+
+    [string] GetByteAsString([int64] $Offset) {
+        return [string] $this.Encoding.GetString($this.GetByte($Offset))
+    }
+
+    [string] GetByteAsString() {
+        return $this.GetByteAsString(0)
+    }
+
+    [int64] GetByteAsInt() {
+        $String = $this.GetByteAsString()
+        return [int64] [System.Convert]::ToInt64($String)
     }
 
     [System.Collections.Hashtable] DecodeDictionary() {
-        $this.WritePosition('DecodeDictionary')
         $Dictionary = [System.Collections.Hashtable]::new()
         [bool] $Terminated = $False
-        [int] $DictionaryOffset = $this.Stream.Position
-        while ($False -ne $this.GetChar()) {
-            if ($this.GetCharAsString() -eq 'e') {
+        [int64] $DictionaryOffset = $this.Stream.Position
+        while ($False -ne $this.GetByte()) {
+            if ($this.GetByteAsString() -eq 'e') {
                 $Terminated = $True
                 break
             }
 
             $KeyOffset = $this.Stream.Position
-            if (![char]::IsDigit($this.GetChar())) {
+            if (![char]::IsDigit($this.GetByte())) {
                 throw "Invalid dictionary key at offset $KeyOffset"
             }
 
@@ -143,7 +129,7 @@ class BencodedFile {
             $Dictionary.Add($Key, $this.DoDecode())
         }
 
-        if (($Terminated -eq $False) -and ($False -ne $this.GetChar())) {
+        if (($Terminated -eq $False) -and ($False -ne $this.GetByte())) {
             throw "Unterminated dictionary definition at offset $DictionaryOffset"
         }
 
@@ -153,12 +139,11 @@ class BencodedFile {
     }
 
     [System.Collections.Generic.List[PSObject]] DecodeList() {
-        $this.WritePosition('DecodeList')
         $List = [System.Collections.Generic.List[PSObject]]::new()
         [bool] $Terminated = $False
-        [int] $ListOffset = $this.Stream.Position
-        while ($False -ne $this.GetChar()) {
-            if ($this.GetCharAsString() -eq 'e') {
+        [int64] $ListOffset = $this.Stream.Position
+        while ($False -ne $this.GetByte()) {
+            if ($this.GetByteAsString() -eq 'e') {
                 $Terminated = $True
                 break
             }
@@ -166,7 +151,7 @@ class BencodedFile {
             $List.Add($this.DoDecode())
         }
 
-        if (($Terminated -eq $False) -and ($False -ne $this.GetChar())) {
+        if (($Terminated -eq $False) -and ($False -ne $this.GetByte())) {
             throw "Unterminated list definition at offset $ListOffset"
         }
 
@@ -174,11 +159,7 @@ class BencodedFile {
         return $List
     }
 
-    [System.Double] DecodeInteger() {
-        $this.WritePosition('DecodeInteger')
-        $Integer = [System.Double]::new()
-        
-        # Offset, position, figure it out!
+    [System.Double] DecodeInteger() {        
         $OffsetOfE = $this.GetOffsetOfString('e')
         $PositionOfE = $this.Stream.Position + $OffsetOfE
         if ($False -eq $OffsetOfE) {
@@ -186,7 +167,7 @@ class BencodedFile {
         }
 
         $CurrentPosition = $this.Stream.Position
-        if ($this.GetCharAsString() -eq '-') {
+        if ($this.GetByteAsString() -eq '-') {
             $CurrentPosition++
         }
 
@@ -196,66 +177,87 @@ class BencodedFile {
         }
 
         while ($CurrentPosition -lt $PositionOfE) {
-            if ($False -eq [char]::IsDigit($this.GetChar(0, $CurrentPosition))) {
+            $Byte = $this.GetByte(0, $CurrentPosition)
+            $Char = $this.Encoding.GetChars($Byte)
+            if (($this.Encoding.GetCharCount($Byte) -ne 1) -or ($False -eq [char]::IsDigit($Char[0]))) {
                 throw "Non-numeric character found in integer entity at offset $($this.Stream.Position)"
             }
+
             $CurrentPosition++
         }
 
-        [char[]] $Chars = $this.GetChars($OffsetOfE)
-        $Integer = $this.CharsToType($Chars, 'integer')
+        [byte[]] $Bytes = $this.GetBytes($OffsetOfE)
+        $Integer = $this.Encoding.GetString($Bytes)
 
         $this.AdvancePosition($OffsetOfE + 1)
 
-        return $Integer
+        return [double] $Integer
     }
 
     [System.String] DecodeString() {
-        $this.WritePosition('DecodeString')
-        if (($this.GetCharAsInt() -eq 0) -and ($this.GetCharAsString(1) -ne ':')) {
-            throw "Illegal zero-padding in string entity length declaration at offset $($this.Stream.Position)"
-        }
+        $ContentLength = $this.GetByteStringLength()
+        $OffsetOfColon = $this.GetOffsetOfColon()
 
-        $OffsetOfColon = $this.GetOffsetOfString(':')
-        if ($OffsetOfColon -eq $False) {
-            throw "Unterminated string entity at offset $($this.Stream.Position)"
-        }
-        
-        # Zoek hier een oplossing met substring
-        [int32] $ContentLength = $Null
-        $this.GetChars($OffsetOfColon, 0) | ForEach-Object {
-            [int] $Digit = [char]::GetNumericValue($_)
-            [int32] $ContentLength = "{0:d1}{1:d1}" -f $ContentLength, $Digit
-        }
-        Write-Host "ContentLength = $ContentLength"
-
-        if (($ContentLength + 1) -gt $this.Stream.Length ) {
-            throw "Unexpected end of string entity at offset $($this.Stream.Position)"
-        }
-
-        [System.String] $String = $Null
-        $this.GetChars($ContentLength, $OffsetOfColon + 1) | ForEach-Object {
-            [System.String] $CharAsString = $_.ToString()
-            [System.String] $String = "{0}{1}" -f $String, $CharAsString
-        }
+        $Bytes = $this.GetBytes($ContentLength, $OffsetOfColon + 1)
+        $String = $this.Encoding.GetString($Bytes)
         
         $this.AdvancePosition($OffsetOfColon + $ContentLength + 1)
         Write-Host "String is $String"
         return $String
     }
 
-    [int] GetOffsetOfString([System.String] $String) {
+    [hashtable] DecodeByteString() {
+        $Hashtable = @{}
+        $ContentLength = $this.GetByteStringLength()
+        $OffsetOfColon = $this.GetOffsetOfColon()
+
+        $Bytes = $this.GetBytes($ContentLength, $OffsetOfColon + 1)
+        $Hashtable.Add('bytestring', $Bytes)
+        $Hashtable.Add('string', $this.Encoding.GetString($Bytes))
+        
+        $this.AdvancePosition($OffsetOfColon + $ContentLength + 1)
+        Write-Host "ByteString length is $($Bytes.Length)"
+        return $Hashtable
+    }
+
+    [int64] GetOffsetOfColon() {
+        $OffsetOfColon = $this.GetOffsetOfString(':')
+        if ($OffsetOfColon -eq $False) {
+            throw "Unterminated string entity at offset $($this.Stream.Position)"
+        }
+        return $OffsetOfColon
+    }
+    
+    [Int64] GetByteStringLength() {
+        if (($this.GetByteAsInt() -eq 0) -and ($this.GetByteAsString(1) -ne ':')) {
+            throw "Illegal zero-padding in string entity length declaration at offset $($this.Stream.Position)"
+        }
+
+        $OffsetOfColon = $this.GetOffsetOfColon()
+        
+        $ByteString = $this.GetBytes($OffsetOfColon, 0)
+        $ByteStringChars = $this.Encoding.GetChars($ByteString)
+        $ContentLength = [System.Convert]::ToInt64([System.String]::new($ByteStringChars))
+
+        if (($ContentLength + 1) -gt $this.Stream.Length ) {
+            throw "Unexpected end of string entity at offset $($this.Stream.Position)"
+        }
+
+        return $ContentLength
+    }
+
+    [int64] GetOffsetOfString([System.String] $String) {
         if ($String.Length -ne 1) {
             throw "$String has incompatible length of $($String.Length)"
         }
 
         $OffsetOfString = 1
         while ($True) {
-            $StringChar = $this.GetCharAsString($OffsetOfString)
-            if ($StringChar -eq $String) {
+            $StringByte = $this.GetByteAsString($OffsetOfString)
+            if ($StringByte -eq $String) {
                 break
             }
-            elseif ($StringChar -eq $False) {
+            elseif ($StringByte -eq $False) {
                 $OffsetOfString = $False
                 break
             }
@@ -263,30 +265,6 @@ class BencodedFile {
                 $OffsetOfString++
             }
         }
-        Write-Host "Offset of $String is $OffsetOfString"
         return $OffsetOfString
-    }
-
-    [System.Object] CharsToType([char[]] $Chars, [string] $BencodeType) {
-        [System.Object] $Value = $Null
-        $Chars | ForEach-Object {
-            $Char = $_
-            switch ($BencodeType) {
-                'string' {
-                    [System.String] $String = $Char.ToString()
-                    [System.String] $Value = "{0}{1}" -f $Value, $String
-                    break
-                }
-                'integer' {
-                    [double] $Integer = [char]::GetNumericValue($Char)
-                    [double] $Value = "{0:G}{1:G}" -f $Value, $Integer
-                    break
-                }
-                default {
-                    throw "Unsupported type $BencodeType"
-                }
-            }
-        }
-        return $Value
     }
 }
