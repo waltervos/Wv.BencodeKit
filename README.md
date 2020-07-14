@@ -1,5 +1,5 @@
 # Wv.BencodeKit
-Wv.Bencodekit was born because I wanted to work with torrent files in PowerShell. It was based on @rchouinard's bencode library for PHP. Eventhough it was meant for working with torrent files, it should work equally well for any file with bencoded data.
+Wv.Bencodekit was made because I wanted to work with torrent files in PowerShell. It was based on @rchouinard's bencode library for PHP. Eventhough it was meant for working with torrent files, it should work equally well for any file with bencoded data.
 
 ## Usage ##
 To use Wv.Bencodekit, download this repo and place the Wv.Bencodekit subfolder anywhere you like on your system. Open a PowerShell session and import the module by typing `Import-Module 'Location\Of\Module\Wv.Bencodekit'`. Then parse a torrent file by entering `$Torrent = ConvertFrom-BencodedFile -FilePath 'Path\To\MyTorrentFile.torrent'`
